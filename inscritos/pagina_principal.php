@@ -290,9 +290,7 @@ function colorEtapa(string $etapa): string {
         <a class="nav-item" onclick="mostrarSeccion('reportes')" data-seccion="reportes">
             <span class="ni-icon">📊</span> Reportes
         </a>
-        <a class="nav-item" onclick="mostrarSeccion('configuracion')" data-seccion="configuracion">
-            <span class="ni-icon">⚙️</span> Configuración
-        </a>
+        
     </nav>
 
     <div class="sidebar-bottom">
