@@ -105,6 +105,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             );
             break;
 
+            case 'actualizar_etapa':
+    $etapasValidas = ['Contacto', 'Interesado', 'Inscrito', 'No Interesado'];
+    $etapa = trim($body['etapa'] ?? '');
+    $id    = filter_var($body['id'] ?? 0, FILTER_VALIDATE_INT);
+
+    if (!$id || $id <= 0) {
+        echo json_encode(['ok' => false, 'mensaje' => 'ID inválido.']);
+        break;
+    }
+    if (!in_array($etapa, $etapasValidas)) {
+        echo json_encode(['ok' => false, 'mensaje' => 'Etapa inválida.']);
+        break;
+    }
+
+    $ok = $model->actualizarEtapa($id, $etapa);
+    echo json_encode($ok
+        ? ['ok' => true]
+        : ['ok' => false, 'mensaje' => 'Error al actualizar la etapa.']
+    );
+    break;
+    
         // ── Eliminar aspirante ────────────────────────────
         case 'eliminar':
             $id = filter_var($body['id'] ?? 0, FILTER_VALIDATE_INT);

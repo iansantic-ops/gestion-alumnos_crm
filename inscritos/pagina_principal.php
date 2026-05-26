@@ -29,7 +29,15 @@ $becaModel      = new Beca();
 
 $pipeline    = $aspiranteModel->contarPorEtapa();
 $semana      = $aspiranteModel->contarNuevosEstaSemana();
-$aspirantes  = $aspiranteModel->listar();
+$paginaActual = max(1, (int)($_GET['pagina'] ?? 1));
+$porPagina    = 50;
+$aspirantes   = $aspiranteModel->listar([], $paginaActual, $porPagina);
+$totalAsp     = $aspiranteModel->totalAspirantes;
+$totalPaginas = max(1, (int)ceil($totalAsp / $porPagina));
+$paginaDash   = max(1, (int)($_GET['paginad'] ?? 1));
+$porPaginaDash = 5;
+$aspirantesDash = $aspiranteModel->listar([], $paginaDash, $porPaginaDash);
+$totalPaginasDash = max(1, (int)ceil($aspiranteModel->totalAspirantes / $porPaginaDash));
 $historial   = $historialModel->obtenerRecientes(8);
 $proximosTmp = $agendaModel->obtenerProximos(6);
 $carreras    = $carreraModel->listarActivas();
@@ -49,9 +57,13 @@ function iconoAgenda(string $tipo): string {
         'llamada' => '📞','correo' => '✉️','reunion' => '🤝',default => '✅',
     };
 }
+
 function colorEtapa(string $etapa): string {
     return match($etapa) {
-        'Inscrito' => '#28a745','Interesado' => '#e07000',default => '#0077cc',
+        'Inscrito'       => '#28a745',
+        'Interesado'     => '#e07b00',
+        'No Interesado'  => '#c0392b',
+        default          => '#0077cc', // Contacto
     };
 }
 ?>
@@ -67,11 +79,13 @@ function colorEtapa(string $etapa): string {
 
         :root {
             --sidebar-w: 220px;
-            --blue-dark: #0f2d5e;
+            --blue-dark: #2085a7;
             --blue:      #1a4a8a;
             --blue-light:#eef3fb;
             --orange:    #f08c00;
+            --amazul:     #d0ca23;
             --green:     #28a745;
+            --red:     #c0392b;
             --gray-bg:   #f3f5fb;
             --white:     #ffffff;
             --text:      #2d3748;
@@ -103,6 +117,22 @@ function colorEtapa(string $etapa): string {
         .sidebar-bottom { padding:14px 12px; border-top:1px solid rgba(255,255,255,0.10); }
         .btn-logout { width:100%; padding:10px; background:rgba(255,80,80,0.2); color:#ff9898; border:1px solid rgba(255,80,80,0.3); border-radius:10px; font-size:13px; font-weight:700; font-family:inherit; cursor:pointer; transition:all 0.2s; }
         .btn-logout:hover { background:rgba(255,80,80,0.35); color:white; }
+
+
+/* Menú flotante de etapas */
+.stage-menu {
+    position:fixed; background:white; border-radius:10px;
+    box-shadow:0 6px 24px rgba(0,0,0,0.18); border:1px solid var(--border);
+    z-index:500; overflow:hidden; min-width:150px;
+}
+.stage-menu-item {
+    display:flex; align-items:center; gap:10px; padding:10px 16px;
+    font-size:13px; font-weight:700; cursor:pointer; transition:background 0.15s;
+    font-family:'Nunito',sans-serif;
+}
+.stage-menu-item:hover { background:var(--gray-bg); }
+.stage-dot { width:11px; height:11px; border-radius:50%; flex-shrink:0; }
+
 
         /* MAIN */
         .main-content { margin-left:var(--sidebar-w); flex:1; display:flex; flex-direction:column; min-height:100vh; }
@@ -240,6 +270,7 @@ function colorEtapa(string $etapa): string {
         .section-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; }
         .section-header h2 { font-size:20px; font-weight:800; color:var(--blue-dark); }
     </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -348,6 +379,7 @@ function colorEtapa(string $etapa): string {
                         <option value="Contacto">Contacto</option>
                         <option value="Interesado">Interesado</option>
                         <option value="Inscrito">Inscrito</option>
+                        <option value="No Interesado">No Interesado</option>
                     </select>
                     <select id="dash-filtro-carrera" onchange="filtrarTablaD()">
                         <option value="">Todas las carreras</option>
@@ -361,14 +393,23 @@ function colorEtapa(string $etapa): string {
                     <table id="dash-tabla-asp">
                         <thead><tr><th>Nombre</th><th>Email</th><th>Carrera</th><th>Etapa</th><th>Acciones</th></tr></thead>
                         <tbody>
-                        <?php if (empty($aspirantes)): ?>
-                            <tr><td colspan="5" class="empty-table">No hay aspirantes registrados.</td></tr>
-                        <?php else: foreach ($aspirantes as $a): ?>
+                        <?php if (empty($aspirantesDash)): ?>
+    <tr><td colspan="5" class="empty-table">No hay aspirantes registrados.</td></tr>
+<?php else: foreach ($aspirantesDash as $a): ?>
                             <tr data-etapa="<?= $a['etapa'] ?>" data-carrera="<?= $a['id_carrera'] ?>" data-nombre="<?= strtolower($a['nombre']) ?>" data-email="<?= strtolower($a['email']) ?>">
                                 <td><strong><?= htmlspecialchars($a['nombre']) ?></strong></td>
                                 <td><?= htmlspecialchars($a['email']) ?></td>
                                 <td><?= htmlspecialchars($a['carrera'] ?? '—') ?></td>
-                                <td><span class="etapa-badge" style="background:<?= colorEtapa($a['etapa']) ?>"><?= $a['etapa'] ?></span></td>
+                                <td>
+    <span class="etapa-badge stage-pill" 
+          style="background:<?= colorEtapa($a['etapa']) ?>;cursor:pointer;position:relative;" 
+          data-id="<?= $a['id_aspirante'] ?>" 
+          data-etapa="<?= $a['etapa'] ?>"
+          onclick="toggleMenuEtapa(event, this)">
+        <?= $a['etapa'] ?>
+    </span>
+</td>
+
                                 <td>
                                     <div class="action-btns">
                                         <button class="btn-edit" onclick="editarAspirante(<?= $a['id_aspirante'] ?>)">✏️</button>
@@ -379,8 +420,38 @@ function colorEtapa(string $etapa): string {
                         <?php endforeach; endif; ?>
                         </tbody>
                     </table>
+               </div> <!-- cierra table-wrap -->
+
+                <?php if ($totalPaginasDash > 1): ?>
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-top:1px solid var(--border);background:var(--gray-bg);">
+                    <span style="font-size:12px;color:var(--text-light);">
+                        <?= (($paginaDash-1)*$porPaginaDash)+1 ?>–<?= min($paginaDash*$porPaginaDash, $totalAsp) ?> de <?= $totalAsp ?>
+                    </span>
+                    <div style="display:flex;gap:5px;align-items:center;">
+                        <?php if ($paginaDash > 1): ?>
+                            <a href="?paginad=<?= $paginaDash-1 ?>#sec-dashboard" class="btn-sm btn-primary" style="padding:5px 10px;">‹</a>
+                        <?php endif; ?>
+                        <?php
+                        $ini = max(1, $paginaDash - 1);
+                        $fin = min($totalPaginasDash, $paginaDash + 1);
+                        for ($p = $ini; $p <= $fin; $p++):
+                        ?>
+                            <a href="?paginad=<?= $p ?>#sec-dashboard"
+                               style="padding:5px 10px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none;
+                                      <?= $p === $paginaDash
+                                          ? 'background:var(--blue);color:white;'
+                                          : 'background:white;border:1.5px solid var(--border);color:var(--text);' ?>">
+                                <?= $p ?>
+                            </a>
+                        <?php endfor; ?>
+                        <?php if ($paginaDash < $totalPaginasDash): ?>
+                            <a href="?paginad=<?= $paginaDash+1 ?>#sec-dashboard" class="btn-sm btn-primary" style="padding:5px 10px;">›</a>
+                        <?php endif; ?>
+                    </div>
                 </div>
-            </div>
+                <?php endif; ?>
+
+            </div> <!-- cierra card -->
 
             <!-- Formulario rápido -->
             <div class="card">
@@ -397,9 +468,7 @@ function colorEtapa(string $etapa): string {
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="form-group"><label>Etapa</label>
-                        <select id="dash-etapa"><option value="Contacto">Contacto</option><option value="Interesado">Interesado</option><option value="Inscrito">Inscrito</option></select>
-                    </div>
+                    
                     <button type="button" onclick="guardarAspRapido()" class="btn-guardar">💾 Guardar Aspirante</button>
                 </div>
             </div>
@@ -446,10 +515,13 @@ function colorEtapa(string $etapa): string {
 
     <!-- ============ SECCIÓN: ASPIRANTES ============ -->
     <div id="sec-aspirantes" class="section">
-        <div class="section-header">
-            <h2>👥 Gestión de Aspirantes</h2>
-            <button class="btn-sm btn-primary" onclick="abrirModalAspirante()">+ Nuevo Aspirante</button>
-        </div>
+       <div class="section-header">
+    <h2>👥 Gestión de Aspirantes</h2>
+    <div style="display:flex;gap:8px;">
+        <button class="btn-sm btn-success" onclick="exportarExcelAspirantes()">📥 Exportar Excel</button>
+        <button class="btn-sm btn-primary" onclick="abrirModalAspirante()">+ Nuevo Aspirante</button>
+    </div>
+</div>
         <div class="card">
             <div class="filters-row">
                 <select id="asp-filtro-etapa" onchange="filtrarTablaA()">
@@ -457,6 +529,7 @@ function colorEtapa(string $etapa): string {
                     <option value="Contacto">Contacto</option>
                     <option value="Interesado">Interesado</option>
                     <option value="Inscrito">Inscrito</option>
+                    <option value="No Interesado">No Interesado</option>
                 </select>
                 <select id="asp-filtro-carrera" onchange="filtrarTablaA()">
                     <option value="">Todas las carreras</option>
@@ -479,7 +552,15 @@ function colorEtapa(string $etapa): string {
                             <td><?= htmlspecialchars($a['telefono'] ?? '—') ?></td>
                             <td><?= htmlspecialchars($a['carrera'] ?? '—') ?></td>
                             <td><?= htmlspecialchars($a['beca'] ?? '—') ?></td>
-                            <td><span class="etapa-badge" style="background:<?= colorEtapa($a['etapa']) ?>"><?= $a['etapa'] ?></span></td>
+                            <td>
+    <span class="etapa-badge stage-pill" 
+          style="background:<?= colorEtapa($a['etapa']) ?>;cursor:pointer;position:relative;" 
+          data-id="<?= $a['id_aspirante'] ?>" 
+          data-etapa="<?= $a['etapa'] ?>"
+          onclick="toggleMenuEtapa(event, this)">
+        <?= $a['etapa'] ?>
+    </span>
+</td>
                             <td style="font-size:12px;color:var(--text-light)"><?= date('d M Y', strtotime($a['creado_en'])) ?></td>
                             <td>
                                 <div class="action-btns">
@@ -491,8 +572,36 @@ function colorEtapa(string $etapa): string {
                     <?php endforeach; endif; ?>
                     </tbody>
                 </table>
-            </div>
-        </div>
+            </div> <!-- cierra table-wrap -->
+
+                <?php if ($totalPaginas > 1): ?>
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-top:1px solid var(--border);background:var(--gray-bg);">
+                    <span style="font-size:13px;color:var(--text-light);">
+                        Mostrando <?= (($paginaActual-1)*$porPagina)+1 ?>–<?= min($paginaActual*$porPagina, $totalAsp) ?> de <?= $totalAsp ?> aspirantes
+                    </span>
+                    <div style="display:flex;gap:6px;align-items:center;">
+                        <?php if ($paginaActual > 1): ?>
+                            <a href="?pagina=<?= $paginaActual-1 ?>" class="btn-sm btn-primary">‹ Anterior</a>
+                        <?php endif; ?>
+                        <?php
+                        $inicio = max(1, $paginaActual - 2);
+                        $fin    = min($totalPaginas, $paginaActual + 2);
+                        for ($p = $inicio; $p <= $fin; $p++):
+                        ?>
+                            <a href="?pagina=<?= $p ?>"
+                               class="btn-sm <?= $p === $paginaActual ? 'btn-primary' : '' ?>"
+                               style="<?= $p === $paginaActual ? '' : 'background:white;border:1.5px solid var(--border);color:var(--text);' ?>min-width:34px;text-align:center;text-decoration:none;">
+                                <?= $p ?>
+                            </a>
+                        <?php endfor; ?>
+                        <?php if ($paginaActual < $totalPaginas): ?>
+                            <a href="?pagina=<?= $paginaActual+1 ?>" class="btn-sm btn-primary">Siguiente ›</a>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <?php endif; ?>
+
+            </div> <!-- cierra card -->
     </div>
 
     <!-- ============ SECCIÓN: HISTORIAL ============ -->
@@ -623,9 +732,12 @@ function colorEtapa(string $etapa): string {
     <!-- ============ SECCIÓN: REPORTES ============ -->
     <div id="sec-reportes" class="section">
         <div class="section-header">
-            <h2>📊 Reportes del Sistema</h2>
-            <button class="btn-sm btn-primary" onclick="cargarReportes()">🔄 Actualizar</button>
-        </div>
+    <h2>📊 Reportes del Sistema</h2>
+    <div style="display:flex;gap:8px;">
+        <button class="btn-sm btn-success" onclick="exportarExcelReportes()">📥 Exportar Excel</button>
+        <button class="btn-sm btn-primary" onclick="cargarReportes()">🔄 Actualizar</button>
+    </div>
+</div>
         <div id="reportes-contenido"><div class="loading-spinner">⏳ Cargando datos...</div></div>
     </div>
 
@@ -676,15 +788,14 @@ function colorEtapa(string $etapa): string {
     <div class="modal" style="width:500px;">
         <h3 id="modal-asp-title">📝 Nuevo Aspirante</h3>
         <input type="hidden" id="asp-id">
+        <input type="hidden" id="asp-etapa-actual" value="Contacto">
         <div class="form-row">
             <div class="form-group"><label>Nombre completo *</label><input type="text" id="asp-nombre" placeholder="Nombre completo"></div>
             <div class="form-group"><label>Email *</label><input type="email" id="asp-email" placeholder="correo@ejemplo.com"></div>
         </div>
         <div class="form-row">
             <div class="form-group"><label>Teléfono</label><input type="text" id="asp-telefono" placeholder="555 000 0000"></div>
-            <div class="form-group"><label>Etapa</label>
-                <select id="asp-etapa"><option value="Contacto">Contacto</option><option value="Interesado">Interesado</option><option value="Inscrito">Inscrito</option></select>
-            </div>
+            
         </div>
         <div class="form-row">
             <div class="form-group"><label>Carrera</label>
@@ -899,12 +1010,11 @@ function filtrarTablaA() {
 // CRUD Aspirantes
 // ============================================================
 function abrirModalAspirante() {
-    document.getElementById('asp-id').value      = '';
-    document.getElementById('asp-nombre').value  = '';
-    document.getElementById('asp-email').value   = '';
+    document.getElementById('asp-id').value       = '';
+    document.getElementById('asp-nombre').value   = '';
+    document.getElementById('asp-email').value    = '';
     document.getElementById('asp-telefono').value = '';
     document.getElementById('asp-carrera').value  = '';
-    document.getElementById('asp-etapa').value    = 'Contacto';
     document.getElementById('asp-beca').value     = '';
     document.getElementById('asp-notas').value    = '';
     document.getElementById('modal-asp-title').textContent = '📝 Nuevo Aspirante';
@@ -921,8 +1031,8 @@ async function editarAspirante(id) {
     document.getElementById('asp-email').value    = a.email;
     document.getElementById('asp-telefono').value = a.telefono || '';
     document.getElementById('asp-carrera').value  = a.id_carrera || '';
-    document.getElementById('asp-etapa').value    = a.etapa;
     document.getElementById('asp-beca').value     = a.id_beca || '';
+    document.getElementById('asp-etapa-actual').value = a.etapa;
     document.getElementById('asp-notas').value    = a.notas || '';
     document.getElementById('modal-asp-title').textContent = '✏️ Editar Aspirante';
     abrirModal('modal-aspirante');
@@ -939,7 +1049,7 @@ async function guardarAspirante() {
         id, nombre, email,
         telefono:   document.getElementById('asp-telefono').value,
         id_carrera: document.getElementById('asp-carrera').value,
-        etapa:      document.getElementById('asp-etapa').value,
+        etapa: id ? document.getElementById('asp-etapa-actual').value : 'Contacto',
         id_beca:    document.getElementById('asp-beca').value,
         notas:      document.getElementById('asp-notas').value,
     };
@@ -965,7 +1075,7 @@ async function guardarAspRapido() {
         accion: 'crear', nombre, email,
         telefono:   document.getElementById('dash-telefono').value,
         id_carrera: document.getElementById('dash-carrera').value,
-        etapa:      document.getElementById('dash-etapa').value,
+        etapa: 'Contacto',  // siempre por default
     };
     const resp = await fetch('assets/api/aspirantes_api.php', {
         method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(datos)
@@ -1155,14 +1265,14 @@ async function cargarReportes() {
         const maxCarrera = Math.max(...d.porCarrera.map(r => r.total), 1);
         const maxEtapa   = Math.max(...d.porEtapa.map(r => r.total), 1);
 
-        const colores = { Contacto:'#f5a623', Interesado:'#e07000', Inscrito:'#28a745' };
+        const colores = { Contacto:'#0077cc', Interesado:'#e07b00', Inscrito:'#28a745', 'No Interesado':'#c0392b' };
         const iconosH = { llamada:'📞', correo:'✉️', visita:'🏢', nota:'📝' };
 
         cont.innerHTML = `
         <div class="stats-grid">
             <div class="stat-box"><div class="stat-num">${d.totalAspirantes}</div><div class="stat-label">Total Aspirantes</div></div>
-            ${d.porEtapa.map(e => `<div class="stat-box"><div class="stat-num" style="color:${colores[e.etapa]||'var(--blue-dark)'}">${e.total}</div><div class="stat-label">${e.etapa}</div></div>`).join('')}
-            <div class="stat-box"><div class="stat-num" style="color:var(--green)">${d.totalConBeca}</div><div class="stat-label">Con Beca Asignada</div></div>
+            ${d.porEtapa.map(e => `<div class="stat-box"><div class="stat-num" style="color:${colores[e.etapa]||'var(--red)'}">${e.total}</div><div class="stat-label">${e.etapa}</div></div>`).join('')}
+            <div class="stat-box"><div class="stat-num" style="color:var(--amazul)">${d.totalConBeca}</div><div class="stat-label">Con Beca Asignada</div></div>
         </div>
 
         <div class="reportes-grid">
@@ -1287,6 +1397,160 @@ async function guardarCredenciales() {
         }
     } catch(e) {
         showAlert('Error de red al procesar la solicitud.');
+    }
+}
+
+// ============================================================
+// Menú de cambio de etapa inline
+// ============================================================
+const etapaOpciones = [
+    { valor: 'Contacto',      color: '#0077cc', bg: '#fff3e0', texto: '#034676' },
+    { valor: 'Interesado',    color: '#e07b00', bg: '#fff3e0', texto: '#7a3800' },
+    { valor: 'Inscrito',      color: '#28a745', bg: '#e8f5e9', texto: '#1a5c2e' },
+    { valor: 'No Interesado', color: '#c0392b', bg: '#fff0f0', texto: '#7a1a1a' },
+];
+
+let _menuActivo = null;
+
+function toggleMenuEtapa(event, pill) {
+    event.stopPropagation();
+    if (_menuActivo) { _menuActivo.remove(); _menuActivo = null; return; }
+
+    const menu = document.createElement('div');
+    menu.className = 'stage-menu';
+    menu.id = 'stage-floating-menu';
+
+    etapaOpciones.forEach(op => {
+        const item = document.createElement('div');
+        item.className = 'stage-menu-item';
+        item.innerHTML = `<span class="stage-dot" style="background:${op.color}"></span>${op.valor}`;
+        item.onclick = async (e) => {
+            e.stopPropagation();
+            const id = pill.dataset.id;
+            const resp = await fetch('assets/api/aspirantes_api.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ accion: 'actualizar_etapa', id, etapa: op.valor })
+            });
+            const data = await resp.json();
+            menu.remove(); _menuActivo = null;
+            if (data.ok) {
+                pill.textContent = op.valor;
+                pill.style.background = op.color;
+                pill.dataset.etapa = op.valor;
+                // actualizar data-etapa en la fila para que funcionen los filtros
+                pill.closest('tr').dataset.etapa = op.valor;
+                toast(`✅ Etapa cambiada a "${op.valor}"`);
+            } else {
+                toast(data.mensaje || 'Error al cambiar etapa', 'error');
+            }
+        };
+        menu.appendChild(item);
+    });
+
+    const rect = pill.getBoundingClientRect();
+    menu.style.top  = (rect.bottom + 4) + 'px';
+    menu.style.left = rect.left + 'px';
+    document.body.appendChild(menu);
+    _menuActivo = menu;
+}
+
+document.addEventListener('click', () => {
+    if (_menuActivo) { _menuActivo.remove(); _menuActivo = null; }
+});
+// Reabrir sección correcta según parámetro URL
+const _params = new URLSearchParams(window.location.search);
+if (_params.has('pagina'))  mostrarSeccion('aspirantes');
+if (_params.has('paginad')) mostrarSeccion('dashboard');
+
+// ============================================================
+// Exportar Excel — Aspirantes
+// ============================================================
+function exportarExcelAspirantes() {
+    const tabla = document.getElementById('asp-tabla');
+    if (!tabla) { toast('No hay datos para exportar', 'error'); return; }
+
+    const filas = [];
+    // Encabezados
+    const ths = tabla.querySelectorAll('thead th');
+    const headers = [];
+    ths.forEach(th => {
+        if (th.textContent.trim() !== 'Acciones') headers.push(th.textContent.trim());
+    });
+    filas.push(headers);
+
+    // Datos visibles (respeta filtros)
+    tabla.querySelectorAll('tbody tr[data-etapa]').forEach(tr => {
+        if (tr.style.display === 'none') return;
+        const fila = [];
+        tr.querySelectorAll('td').forEach((td, i) => {
+            // Saltar columna acciones (última)
+            if (i === tr.querySelectorAll('td').length - 1) return;
+            fila.push(td.textContent.trim());
+        });
+        filas.push(fila);
+    });
+
+    if (filas.length <= 1) { toast('No hay aspirantes visibles para exportar', 'error'); return; }
+
+    const ws = XLSX.utils.aoa_to_sheet(filas);
+
+    // Ancho de columnas automático
+    ws['!cols'] = headers.map((_, i) => ({
+        wch: Math.max(...filas.map(r => (r[i] || '').toString().length), 10)
+    }));
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Aspirantes');
+    XLSX.writeFile(wb, `aspirantes_${new Date().toISOString().slice(0,10)}.xlsx`);
+    toast('📥 Excel generado correctamente');
+}
+
+// ============================================================
+// Exportar Excel — Reportes
+// ============================================================
+async function exportarExcelReportes() {
+    toast('⏳ Generando Excel de reportes...');
+    try {
+        const resp = await fetch('assets/api/reportes_api.php');
+        const d    = await resp.json();
+        if (!d.ok) { toast('Error al obtener datos', 'error'); return; }
+
+        const wb = XLSX.utils.book_new();
+
+        // Hoja 1: Pipeline por etapa
+        const wsEtapa = XLSX.utils.aoa_to_sheet([
+            ['Etapa', 'Total'],
+            ...d.porEtapa.map(r => [r.etapa, r.total]),
+            [],
+            ['Total Aspirantes', d.totalAspirantes],
+            ['Con Beca Asignada', d.totalConBeca],
+        ]);
+        wsEtapa['!cols'] = [{ wch: 20 }, { wch: 10 }];
+        XLSX.utils.book_append_sheet(wb, wsEtapa, 'Pipeline Etapas');
+
+        // Hoja 2: Por carrera
+        const wsCarrera = XLSX.utils.aoa_to_sheet([
+            ['Carrera', 'Total Aspirantes'],
+            ...d.porCarrera.map(r => [r.carrera, r.total]),
+        ]);
+        wsCarrera['!cols'] = [{ wch: 35 }, { wch: 18 }];
+        XLSX.utils.book_append_sheet(wb, wsCarrera, 'Por Carrera');
+
+        // Hoja 3: Becas asignadas
+        if (d.becasAsignadas && d.becasAsignadas.length > 0) {
+            const wsBecas = XLSX.utils.aoa_to_sheet([
+                ['Beca', 'Aspirantes Asignados', 'Descuento %'],
+                ...d.becasAsignadas.map(b => [b.beca, b.asignadas, b.descuento + '%']),
+            ]);
+            wsBecas['!cols'] = [{ wch: 30 }, { wch: 22 }, { wch: 14 }];
+            XLSX.utils.book_append_sheet(wb, wsBecas, 'Becas Asignadas');
+        }
+
+        XLSX.writeFile(wb, `reporte_crm_${new Date().toISOString().slice(0,10)}.xlsx`);
+        toast('📥 Reporte Excel generado');
+    } catch(e) {
+        toast('Error al generar Excel: ' + e.message, 'error');
     }
 }
 </script>
