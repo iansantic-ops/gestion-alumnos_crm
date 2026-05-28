@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS aspirantes (
     email              VARCHAR(200) NOT NULL,
     telefono           VARCHAR(20),
     id_carrera         INT,
-    etapa              ENUM('Contacto','Interesado','Inscrito') DEFAULT 'Contacto',
+    etapa              ENUM('Contacto','Interesado','Inscrito','No Interesado') DEFAULT 'Contacto',
     id_beca            INT DEFAULT NULL,
     descuento_aplicado DECIMAL(5,2) DEFAULT 0.00,
     notas              TEXT,
@@ -121,3 +121,12 @@ INSERT IGNORE INTO agenda (id_aspirante, tipo, titulo, fecha_hora) VALUES
 (NULL, 'tarea',   'Revisión semanal de aspirantes',  NOW()),
 (2,    'llamada', 'Llamar a Juan García',             DATE_ADD(NOW(), INTERVAL 1 DAY)),
 (2,    'correo',  'Enviar correo con información',    DATE_ADD(NOW(), INTERVAL 2 DAY));
+
+-- -----------------------------------------------------------
+-- Migración v4: agregar etapa 'No Interesado'
+-- Ejecutar en instalaciones existentes (v3 → v4):
+-- -----------------------------------------------------------
+-- ALTER TABLE aspirantes
+--     MODIFY COLUMN etapa
+--     ENUM('Contacto','Interesado','Inscrito','No Interesado')
+--     DEFAULT 'Contacto';

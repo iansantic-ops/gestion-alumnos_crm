@@ -29,15 +29,13 @@ $becaModel      = new Beca();
 
 $pipeline    = $aspiranteModel->contarPorEtapa();
 $semana      = $aspiranteModel->contarNuevosEstaSemana();
-$paginaActual = max(1, (int)($_GET['pagina'] ?? 1));
-$porPagina    = 50;
-$aspirantes   = $aspiranteModel->listar([], $paginaActual, $porPagina);
-$totalAsp     = $aspiranteModel->totalAspirantes;
-$totalPaginas = max(1, (int)ceil($totalAsp / $porPagina));
+// Dashboard mini-tabla (5 registros, paginación propia)
 $paginaDash   = max(1, (int)($_GET['paginad'] ?? 1));
 $porPaginaDash = 5;
 $aspirantesDash = $aspiranteModel->listar([], $paginaDash, $porPaginaDash);
-$totalPaginasDash = max(1, (int)ceil($aspiranteModel->totalAspirantes / $porPaginaDash));
+$totalAsp         = $aspiranteModel->totalAspirantes;
+$totalPaginasDash = max(1, (int)ceil($totalAsp / $porPaginaDash));
+// Sección Aspirantes: la tabla se carga vía AJAX (filtros + paginación server-side)
 $historial   = $historialModel->obtenerRecientes(8);
 $proximosTmp = $agendaModel->obtenerProximos(6);
 $carreras    = $carreraModel->listarActivas();
@@ -515,93 +513,46 @@ function colorEtapa(string $etapa): string {
 
     <!-- ============ SECCIÓN: ASPIRANTES ============ -->
     <div id="sec-aspirantes" class="section">
-       <div class="section-header">
-    <h2>👥 Gestión de Aspirantes</h2>
-    <div style="display:flex;gap:8px;">
-        <button class="btn-sm btn-success" onclick="exportarExcelAspirantes()">📥 Exportar Excel</button>
-        <button class="btn-sm btn-primary" onclick="abrirModalAspirante()">+ Nuevo Aspirante</button>
-    </div>
-</div>
+        <div class="section-header">
+            <h2>👥 Gestión de Aspirantes</h2>
+            <div style="display:flex;gap:8px;">
+                <button class="btn-sm btn-success" onclick="exportarExcelAspirantes()">📥 Exportar Excel</button>
+                <button class="btn-sm btn-primary" onclick="abrirModalAspirante()">+ Nuevo Aspirante</button>
+            </div>
+        </div>
         <div class="card">
+            <!-- Filtros: onchange llama a cargarAspirantes(1) para reiniciar en página 1 -->
             <div class="filters-row">
-                <select id="asp-filtro-etapa" onchange="filtrarTablaA()">
+                <select id="asp-filtro-etapa" onchange="cargarAspirantes(1)">
                     <option value="">Todas las etapas</option>
                     <option value="Contacto">Contacto</option>
                     <option value="Interesado">Interesado</option>
                     <option value="Inscrito">Inscrito</option>
                     <option value="No Interesado">No Interesado</option>
                 </select>
-                <select id="asp-filtro-carrera" onchange="filtrarTablaA()">
+                <select id="asp-filtro-carrera" onchange="cargarAspirantes(1)">
                     <option value="">Todas las carreras</option>
                     <?php foreach ($carreras as $c): ?>
                         <option value="<?= $c['id_carrera'] ?>"><?= htmlspecialchars($c['nombre']) ?></option>
                     <?php endforeach; ?>
                 </select>
-                <input type="text" id="asp-busqueda" placeholder="🔍 Buscar nombre o email..." oninput="filtrarTablaA()">
+                <input type="text" id="asp-busqueda" placeholder="🔍 Buscar nombre o email..."
+                       oninput="debounceAsp()">
             </div>
             <div class="table-wrap">
                 <table id="asp-tabla">
                     <thead><tr><th>Nombre</th><th>Email</th><th>Teléfono</th><th>Carrera</th><th>Beca</th><th>Etapa</th><th>Registrado</th><th>Acciones</th></tr></thead>
                     <tbody id="asp-tbody">
-                    <?php if (empty($aspirantes)): ?>
-                        <tr><td colspan="8" class="empty-table">No hay aspirantes registrados aún.</td></tr>
-                    <?php else: foreach ($aspirantes as $a): ?>
-                        <tr data-etapa="<?= $a['etapa'] ?>" data-carrera="<?= $a['id_carrera'] ?>" data-nombre="<?= strtolower($a['nombre']) ?>" data-email="<?= strtolower($a['email']) ?>">
-                            <td><strong><?= htmlspecialchars($a['nombre']) ?></strong></td>
-                            <td><?= htmlspecialchars($a['email']) ?></td>
-                            <td><?= htmlspecialchars($a['telefono'] ?? '—') ?></td>
-                            <td><?= htmlspecialchars($a['carrera'] ?? '—') ?></td>
-                            <td><?= htmlspecialchars($a['beca'] ?? '—') ?></td>
-                            <td>
-    <span class="etapa-badge stage-pill" 
-          style="background:<?= colorEtapa($a['etapa']) ?>;cursor:pointer;position:relative;" 
-          data-id="<?= $a['id_aspirante'] ?>" 
-          data-etapa="<?= $a['etapa'] ?>"
-          onclick="toggleMenuEtapa(event, this)">
-        <?= $a['etapa'] ?>
-    </span>
-</td>
-                            <td style="font-size:12px;color:var(--text-light)"><?= date('d M Y', strtotime($a['creado_en'])) ?></td>
-                            <td>
-                                <div class="action-btns">
-                                    <button class="btn-edit" onclick="editarAspirante(<?= $a['id_aspirante'] ?>)">✏️ Editar</button>
-                                    <button class="btn-del" onclick="confirmarEliminar(<?= $a['id_aspirante'] ?>, '<?= addslashes($a['nombre']) ?>', 'aspirante')">🗑️</button>
-                                </div>
-                            </td>
-                        </tr>
-                    <?php endforeach; endif; ?>
+                        <tr><td colspan="8" class="empty-table" style="padding:30px;">⏳ Cargando aspirantes...</td></tr>
                     </tbody>
                 </table>
-            </div> <!-- cierra table-wrap -->
-
-                <?php if ($totalPaginas > 1): ?>
-                <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-top:1px solid var(--border);background:var(--gray-bg);">
-                    <span style="font-size:13px;color:var(--text-light);">
-                        Mostrando <?= (($paginaActual-1)*$porPagina)+1 ?>–<?= min($paginaActual*$porPagina, $totalAsp) ?> de <?= $totalAsp ?> aspirantes
-                    </span>
-                    <div style="display:flex;gap:6px;align-items:center;">
-                        <?php if ($paginaActual > 1): ?>
-                            <a href="?pagina=<?= $paginaActual-1 ?>" class="btn-sm btn-primary">‹ Anterior</a>
-                        <?php endif; ?>
-                        <?php
-                        $inicio = max(1, $paginaActual - 2);
-                        $fin    = min($totalPaginas, $paginaActual + 2);
-                        for ($p = $inicio; $p <= $fin; $p++):
-                        ?>
-                            <a href="?pagina=<?= $p ?>"
-                               class="btn-sm <?= $p === $paginaActual ? 'btn-primary' : '' ?>"
-                               style="<?= $p === $paginaActual ? '' : 'background:white;border:1.5px solid var(--border);color:var(--text);' ?>min-width:34px;text-align:center;text-decoration:none;">
-                                <?= $p ?>
-                            </a>
-                        <?php endfor; ?>
-                        <?php if ($paginaActual < $totalPaginas): ?>
-                            <a href="?pagina=<?= $paginaActual+1 ?>" class="btn-sm btn-primary">Siguiente ›</a>
-                        <?php endif; ?>
-                    </div>
-                </div>
-                <?php endif; ?>
-
-            </div> <!-- cierra card -->
+            </div>
+            <!-- Paginación dinámica generada por JS -->
+            <div id="asp-paginacion" style="display:none;align-items:center;justify-content:space-between;padding:14px 20px;border-top:1px solid var(--border);background:var(--gray-bg);">
+                <span id="asp-paginacion-info" style="font-size:13px;color:var(--text-light);"></span>
+                <div id="asp-paginacion-btns" style="display:flex;gap:6px;align-items:center;"></div>
+            </div>
+        </div>
     </div>
 
     <!-- ============ SECCIÓN: HISTORIAL ============ -->
@@ -955,13 +906,14 @@ function mostrarSeccion(sec) {
         document.getElementById('topbar-sub').textContent   = titulos[sec][1];
     }
 
-    if (sec === 'reportes') cargarReportes();
+    if (sec === 'reportes')   cargarReportes();
+    if (sec === 'aspirantes') cargarAspirantes(_aspPaginaActual);
 }
 
 function irAspirantes(etapa) {
     mostrarSeccion('aspirantes');
     document.getElementById('asp-filtro-etapa').value = etapa;
-    filtrarTablaA();
+    cargarAspirantes(1);
 }
 
 // ============================================================
@@ -994,16 +946,110 @@ function filtrarTablaD() {
         row.style.display = ok ? '' : 'none';
     });
 }
-function filtrarTablaA() {
-    const etapa   = document.getElementById('asp-filtro-etapa').value.toLowerCase();
+// ============================================================
+// Carga AJAX de aspirantes — filtros + paginación server-side
+// ============================================================
+let _aspPaginaActual = 1;
+let _aspDebounce = null;
+
+async function cargarAspirantes(pagina = 1) {
+    _aspPaginaActual = pagina;
+    const etapa   = document.getElementById('asp-filtro-etapa').value;
     const carrera = document.getElementById('asp-filtro-carrera').value;
-    const busq    = document.getElementById('asp-busqueda').value.toLowerCase();
-    document.querySelectorAll('#asp-tbody tr[data-etapa]').forEach(row => {
-        const ok = (!etapa   || row.dataset.etapa.toLowerCase() === etapa)
-                && (!carrera || row.dataset.carrera === carrera)
-                && (!busq    || row.dataset.nombre.includes(busq) || row.dataset.email.includes(busq));
-        row.style.display = ok ? '' : 'none';
-    });
+    const busq    = document.getElementById('asp-busqueda').value.trim();
+
+    const tbody = document.getElementById('asp-tbody');
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-table" style="padding:24px;">⏳ Cargando...</td></tr>';
+    document.getElementById('asp-paginacion').style.display = 'none';
+
+    const params = new URLSearchParams({ accion: 'listar', pagina });
+    if (etapa)   params.set('etapa',    etapa);
+    if (carrera) params.set('carrera',  carrera);
+    if (busq)    params.set('busqueda', busq);
+
+    try {
+        const resp = await fetch('assets/api/aspirantes_api.php?' + params);
+        const data = await resp.json();
+        if (!data.ok) { tbody.innerHTML = '<tr><td colspan="8" class="empty-table">Error al cargar datos.</td></tr>'; return; }
+
+        renderTablaAspirantes(data.aspirantes);
+        renderPaginacionAspirantes(data);
+    } catch(e) {
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-table">Error de conexión.</td></tr>';
+    }
+}
+
+function debounceAsp() {
+    clearTimeout(_aspDebounce);
+    _aspDebounce = setTimeout(() => cargarAspirantes(1), 350);
+}
+
+const _colorEtapa = {
+    'Contacto':      '#0077cc',
+    'Interesado':    '#e07b00',
+    'Inscrito':      '#28a745',
+    'No Interesado': '#c0392b',
+};
+
+function renderTablaAspirantes(aspirantes) {
+    const tbody = document.getElementById('asp-tbody');
+    if (!aspirantes || aspirantes.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-table">No se encontraron aspirantes con los filtros aplicados.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = aspirantes.map(a => {
+        const color = _colorEtapa[a.etapa] || '#888';
+        const fecha = new Date(a.creado_en).toLocaleDateString('es-MX', { day:'2-digit', month:'short', year:'numeric' });
+        return `<tr data-etapa="${a.etapa}" data-carrera="${a.id_carrera||''}">
+            <td><strong>${esc(a.nombre)}</strong></td>
+            <td>${esc(a.email)}</td>
+            <td>${esc(a.telefono||'—')}</td>
+            <td>${esc(a.carrera||'—')}</td>
+            <td>${esc(a.beca||'—')}</td>
+            <td><span class="etapa-badge stage-pill"
+                  style="background:${color};cursor:pointer;"
+                  data-id="${a.id_aspirante}"
+                  data-etapa="${a.etapa}"
+                  onclick="toggleMenuEtapa(event,this)">${esc(a.etapa)}</span></td>
+            <td style="font-size:12px;color:var(--text-light)">${fecha}</td>
+            <td><div class="action-btns">
+                <button class="btn-edit" onclick="editarAspirante(${a.id_aspirante})">✏️ Editar</button>
+                <button class="btn-del" onclick="confirmarEliminar(${a.id_aspirante},'${esc(a.nombre).replace(/'/g,"\\'")  }','aspirante')">🗑️</button>
+            </div></td>
+        </tr>`;
+    }).join('');
+}
+
+function esc(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function renderPaginacionAspirantes(data) {
+    const { total, pagina, porPagina, totalPaginas } = data;
+    const wrap = document.getElementById('asp-paginacion');
+    const info = document.getElementById('asp-paginacion-info');
+    const btns = document.getElementById('asp-paginacion-btns');
+
+    if (totalPaginas <= 1) { wrap.style.display = 'none'; return; }
+
+    const desde = (pagina - 1) * porPagina + 1;
+    const hasta = Math.min(pagina * porPagina, total);
+    info.textContent = `Mostrando ${desde}–${hasta} de ${total} aspirantes`;
+
+    let html = '';
+    if (pagina > 1) html += `<button class="btn-sm btn-primary" onclick="cargarAspirantes(${pagina-1})">‹ Anterior</button>`;
+    const ini = Math.max(1, pagina - 2);
+    const fin = Math.min(totalPaginas, pagina + 2);
+    for (let p = ini; p <= fin; p++) {
+        const active = p === pagina;
+        html += `<button class="btn-sm ${active ? 'btn-primary' : ''}"
+            style="${active ? '' : 'background:white;border:1.5px solid var(--border);color:var(--text);'}min-width:34px;"
+            onclick="cargarAspirantes(${p})">${p}</button>`;
+    }
+    if (pagina < totalPaginas) html += `<button class="btn-sm btn-primary" onclick="cargarAspirantes(${pagina+1})">Siguiente ›</button>`;
+    btns.innerHTML = html;
+    wrap.style.display = 'flex';
 }
 
 // ============================================================
@@ -1061,7 +1107,7 @@ async function guardarAspirante() {
     cerrarModal('modal-aspirante');
     if (data.ok) {
         toast(id ? '✅ Aspirante actualizado' : '✅ Aspirante registrado');
-        setTimeout(() => location.reload(), 1200);
+        cargarAspirantes(_aspPaginaActual);
     } else {
         toast(data.mensaje || 'Error al guardar', 'error');
     }
@@ -1081,8 +1127,11 @@ async function guardarAspRapido() {
         method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(datos)
     });
     const data = await resp.json();
-    if (data.ok) { toast('✅ Aspirante registrado'); setTimeout(() => location.reload(), 1200); }
-    else { toast(data.mensaje || 'Error al guardar', 'error'); }
+    if (data.ok) {
+        toast('✅ Aspirante registrado');
+        cerrarModal('modal-asp-rapido');
+        cargarAspirantes(1); // refresca tabla sin recargar página
+    } else { toast(data.mensaje || 'Error al guardar', 'error'); }
 }
 
 // ============================================================
@@ -1191,8 +1240,14 @@ async function ejecutarEliminar() {
     });
     const data = await resp.json();
     cerrarModal('modal-confirm');
-    if (data.ok) { toast('🗑️ Eliminado correctamente'); setTimeout(() => location.reload(), 1000); }
-    else { toast(data.mensaje || 'Error al eliminar', 'error'); }
+    if (data.ok) {
+        toast('🗑️ Eliminado correctamente');
+        if (_delTipo === 'aspirante') {
+            cargarAspirantes(_aspPaginaActual);
+        } else {
+            setTimeout(() => location.reload(), 1000);
+        }
+    } else { toast(data.mensaje || 'Error al eliminar', 'error'); }
 }
 
 // ============================================================
@@ -1441,6 +1496,8 @@ function toggleMenuEtapa(event, pill) {
                 // actualizar data-etapa en la fila para que funcionen los filtros
                 pill.closest('tr').dataset.etapa = op.valor;
                 toast(`✅ Etapa cambiada a "${op.valor}"`);
+                // Refrescar contadores del pipeline en el dashboard
+                if (typeof cargarReportes === 'function') cargarReportes();
             } else {
                 toast(data.mensaje || 'Error al cambiar etapa', 'error');
             }
@@ -1458,52 +1515,61 @@ function toggleMenuEtapa(event, pill) {
 document.addEventListener('click', () => {
     if (_menuActivo) { _menuActivo.remove(); _menuActivo = null; }
 });
-// Reabrir sección correcta según parámetro URL
+// Carga inicial: si la sección activa al inicio es aspirantes, cargar de inmediato
+// En cualquier caso, mostrarSeccion() la carga cuando el usuario entra
+// Reabrir sección si hay parámetro de paginación del dashboard en URL
 const _params = new URLSearchParams(window.location.search);
-if (_params.has('pagina'))  mostrarSeccion('aspirantes');
 if (_params.has('paginad')) mostrarSeccion('dashboard');
 
 // ============================================================
-// Exportar Excel — Aspirantes
+// Exportar Excel — Aspirantes (TODOS via API, respeta filtros)
 // ============================================================
-function exportarExcelAspirantes() {
-    const tabla = document.getElementById('asp-tabla');
-    if (!tabla) { toast('No hay datos para exportar', 'error'); return; }
+async function exportarExcelAspirantes() {
+    toast('⏳ Generando Excel de aspirantes...');
+    try {
+        const etapa   = document.getElementById('asp-filtro-etapa').value;
+        const carrera = document.getElementById('asp-filtro-carrera').value;
+        const busq    = document.getElementById('asp-busqueda').value.trim();
 
-    const filas = [];
-    // Encabezados
-    const ths = tabla.querySelectorAll('thead th');
-    const headers = [];
-    ths.forEach(th => {
-        if (th.textContent.trim() !== 'Acciones') headers.push(th.textContent.trim());
-    });
-    filas.push(headers);
+        const params = new URLSearchParams({ accion: 'exportar' });
+        if (etapa)   params.set('etapa',    etapa);
+        if (carrera) params.set('carrera',  carrera);
+        if (busq)    params.set('busqueda', busq);
 
-    // Datos visibles (respeta filtros)
-    tabla.querySelectorAll('tbody tr[data-etapa]').forEach(tr => {
-        if (tr.style.display === 'none') return;
-        const fila = [];
-        tr.querySelectorAll('td').forEach((td, i) => {
-            // Saltar columna acciones (última)
-            if (i === tr.querySelectorAll('td').length - 1) return;
-            fila.push(td.textContent.trim());
-        });
-        filas.push(fila);
-    });
+        const resp = await fetch('assets/api/aspirantes_api.php?' + params);
+        const data = await resp.json();
+        if (!data.ok || !data.aspirantes.length) {
+            toast('No hay aspirantes para exportar', 'error'); return;
+        }
 
-    if (filas.length <= 1) { toast('No hay aspirantes visibles para exportar', 'error'); return; }
+        const headers = ['Nombre', 'Email', 'Teléfono', 'Carrera', 'Beca', 'Etapa', 'Descuento %', 'Notas', 'Registrado'];
+        const filas = [
+            headers,
+            ...data.aspirantes.map(a => [
+                a.nombre,
+                a.email,
+                a.telefono || '',
+                a.carrera  || '',
+                a.beca     || '',
+                a.etapa,
+                parseFloat(a.descuento_aplicado) || 0,
+                a.notas    || '',
+                a.creado_en ? a.creado_en.split(' ')[0] : '',
+            ])
+        ];
 
-    const ws = XLSX.utils.aoa_to_sheet(filas);
+        const ws = XLSX.utils.aoa_to_sheet(filas);
+        ws['!cols'] = headers.map((_, i) => ({
+            wch: Math.max(...filas.map(r => (r[i] ?? '').toString().length), 10)
+        }));
 
-    // Ancho de columnas automático
-    ws['!cols'] = headers.map((_, i) => ({
-        wch: Math.max(...filas.map(r => (r[i] || '').toString().length), 10)
-    }));
-
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Aspirantes');
-    XLSX.writeFile(wb, `aspirantes_${new Date().toISOString().slice(0,10)}.xlsx`);
-    toast('📥 Excel generado correctamente');
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Aspirantes');
+        XLSX.writeFile(wb, `aspirantes_${new Date().toISOString().slice(0,10)}.xlsx`);
+        toast(`📥 Excel generado: ${data.aspirantes.length} registros`);
+    } catch(e) {
+        toast('Error al generar Excel: ' + e.message, 'error');
+    }
 }
 
 // ============================================================

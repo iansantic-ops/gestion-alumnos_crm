@@ -1,15 +1,13 @@
 <?php
 // ============================================================
-// API: Aspirantes — CRUD via AJAX
-// Archivo: assets/api/aspirantes_api.php
-// MEJORAS: validaciones con Aspirante::validar() antes de
-//          INSERT/UPDATE; respuestas JSON consistentes con
-//          campo 'errores' para el frontend
+// API: Aspirantes — CRUD + paginación + exportación via AJAX
+// v4: listar ahora recibe pagina/pp/filtros desde GET;
+//     nueva acción 'exportar' que devuelve TODOS los registros
+//     sin LIMIT (respetando filtros) para Excel completo.
 // ============================================================
 session_start();
 header('Content-Type: application/json; charset=utf-8');
 
-// Requiere sesión activa
 if (!isset($_SESSION['id_usuario'])) {
     echo json_encode(['ok' => false, 'mensaje' => 'No autorizado.']);
     exit();
@@ -23,6 +21,7 @@ $model = new Aspirante();
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $accion = trim($_GET['accion'] ?? '');
 
+    // ── Obtener uno ──────────────────────────────────────────
     if ($accion === 'obtener') {
         $id = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
         if (!$id || $id <= 0) {
@@ -35,14 +34,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
             : ['ok' => false, 'mensaje'   => 'Aspirante no encontrado.']
         );
 
+    // ── Listar paginado (filtros server-side) ────────────────
     } elseif ($accion === 'listar') {
         $filtros = [
             'etapa'      => trim($_GET['etapa']    ?? ''),
             'id_carrera' => trim($_GET['carrera']  ?? ''),
             'busqueda'   => trim($_GET['busqueda'] ?? ''),
         ];
-        $lista = $model->listar(array_filter($filtros));
-        echo json_encode(['ok' => true, 'aspirantes' => $lista]);
+        $pagina    = max(1, (int)($_GET['pagina'] ?? 1));
+        $porPagina = 50;
+
+        $lista = $model->listar(array_filter($filtros), $pagina, $porPagina);
+        $total = $model->totalAspirantes;
+
+        echo json_encode([
+            'ok'          => true,
+            'aspirantes'  => $lista,
+            'total'       => $total,
+            'pagina'      => $pagina,
+            'porPagina'   => $porPagina,
+            'totalPaginas'=> (int)ceil($total / $porPagina),
+        ]);
+
+    // ── Exportar TODOS (sin LIMIT, con filtros) ──────────────
+    } elseif ($accion === 'exportar') {
+        $filtros = [
+            'etapa'      => trim($_GET['etapa']    ?? ''),
+            'id_carrera' => trim($_GET['carrera']  ?? ''),
+            'busqueda'   => trim($_GET['busqueda'] ?? ''),
+        ];
+        // porPagina muy alto = traer todos sin romper la firma del método
+        $lista = $model->listar(array_filter($filtros), 1, 999999);
+        echo json_encode(['ok' => true, 'aspirantes' => $lista, 'total' => $model->totalAspirantes]);
 
     } else {
         echo json_encode(['ok' => false, 'mensaje' => 'Acción no reconocida.']);
@@ -64,15 +87,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     switch ($accion) {
 
-        // ── Crear aspirante ───────────────────────────────
+        // ── Crear ─────────────────────────────────────────────
         case 'crear':
             $errores = $model->validar($body);
             if (!empty($errores)) {
-                echo json_encode([
-                    'ok'      => false,
-                    'mensaje' => $errores[0],   // primer error para el toast
-                    'errores' => $errores,       // lista completa por si el front los necesita
-                ]);
+                echo json_encode(['ok' => false, 'mensaje' => $errores[0], 'errores' => $errores]);
                 break;
             }
             $id = $model->crear($body);
@@ -82,20 +101,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             );
             break;
 
-        // ── Actualizar aspirante ──────────────────────────
+        // ── Actualizar ────────────────────────────────────────
         case 'actualizar':
             $id = filter_var($body['id'] ?? 0, FILTER_VALIDATE_INT);
             if (!$id || $id <= 0) {
                 echo json_encode(['ok' => false, 'mensaje' => 'ID inválido para actualizar.']);
                 break;
             }
-            $errores = $model->validar($body, $id);   // excluye el propio email del dup-check
+            $errores = $model->validar($body, $id);
             if (!empty($errores)) {
-                echo json_encode([
-                    'ok'      => false,
-                    'mensaje' => $errores[0],
-                    'errores' => $errores,
-                ]);
+                echo json_encode(['ok' => false, 'mensaje' => $errores[0], 'errores' => $errores]);
                 break;
             }
             $ok = $model->actualizar($id, $body);
@@ -105,28 +120,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             );
             break;
 
-            case 'actualizar_etapa':
-    $etapasValidas = ['Contacto', 'Interesado', 'Inscrito', 'No Interesado'];
-    $etapa = trim($body['etapa'] ?? '');
-    $id    = filter_var($body['id'] ?? 0, FILTER_VALIDATE_INT);
+        // ── Actualizar etapa (menú flotante) ──────────────────
+        case 'actualizar_etapa':
+            $etapasValidas = ['Contacto', 'Interesado', 'Inscrito', 'No Interesado'];
+            $etapa = trim($body['etapa'] ?? '');
+            $id    = filter_var($body['id'] ?? 0, FILTER_VALIDATE_INT);
 
-    if (!$id || $id <= 0) {
-        echo json_encode(['ok' => false, 'mensaje' => 'ID inválido.']);
-        break;
-    }
-    if (!in_array($etapa, $etapasValidas)) {
-        echo json_encode(['ok' => false, 'mensaje' => 'Etapa inválida.']);
-        break;
-    }
+            if (!$id || $id <= 0) {
+                echo json_encode(['ok' => false, 'mensaje' => 'ID inválido.']);
+                break;
+            }
+            if (!in_array($etapa, $etapasValidas, true)) {
+                echo json_encode(['ok' => false, 'mensaje' => 'Etapa inválida.']);
+                break;
+            }
+            $ok = $model->actualizarEtapa($id, $etapa);
+            echo json_encode($ok
+                ? ['ok' => true]
+                : ['ok' => false, 'mensaje' => 'Error al actualizar la etapa.']
+            );
+            break;
 
-    $ok = $model->actualizarEtapa($id, $etapa);
-    echo json_encode($ok
-        ? ['ok' => true]
-        : ['ok' => false, 'mensaje' => 'Error al actualizar la etapa.']
-    );
-    break;
-    
-        // ── Eliminar aspirante ────────────────────────────
+        // ── Eliminar ──────────────────────────────────────────
         case 'eliminar':
             $id = filter_var($body['id'] ?? 0, FILTER_VALIDATE_INT);
             if (!$id || $id <= 0) {
