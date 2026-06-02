@@ -53,8 +53,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-    $proximos = $model->obtenerProximos(20);
-    echo json_encode(['ok' => true, 'eventos' => $proximos]);
+    $accion = trim($_GET['accion'] ?? 'listar');
+
+    if ($accion === 'calendario') {
+        // FullCalendar: devuelve todos los eventos como array de objetos FC
+        require_once __DIR__ . '/../sentenciasSQL/Conexion.php';
+        $stmt = $pdo->query(
+            "SELECT ag.id_agenda, ag.tipo, ag.fecha_hora, ag.completado,
+                    ag.titulo, a.nombre AS aspirante
+             FROM agenda ag
+             LEFT JOIN aspirantes a ON ag.id_aspirante = a.id_aspirante
+             ORDER BY ag.fecha_hora ASC"
+        );
+        $eventos = array_map(function($ev) {
+            $colores = ['tarea'=>'#0077cc','llamada'=>'#28a745','correo'=>'#e07b00','reunion'=>'#7c3aed'];
+            return [
+                'id'    => $ev['id_agenda'],
+                'title' => ($ev['aspirante'] ? $ev['aspirante'].' — ' : '') . $ev['titulo'],
+                'start' => $ev['fecha_hora'],
+                'backgroundColor' => $colores[$ev['tipo']] ?? '#888',
+                'borderColor'     => $colores[$ev['tipo']] ?? '#888',
+                'textColor'       => '#fff',
+                'extendedProps'   => ['tipo'=>$ev['tipo'], 'completado'=>$ev['completado']],
+            ];
+        }, $stmt->fetchAll(PDO::FETCH_ASSOC));
+        echo json_encode(['ok'=>true,'eventos'=>$eventos]);
+
+    } elseif ($accion === 'pendientes_hoy') {
+        require_once __DIR__ . '/../sentenciasSQL/Conexion.php';
+        $stmt = $pdo->query(
+            "SELECT COUNT(*) AS total FROM agenda
+             WHERE completado=0 AND DATE(fecha_hora)=CURDATE()"
+        );
+        echo json_encode(['ok'=>true,'total'=>(int)$stmt->fetchColumn()]);
+
+    } else {
+        $proximos = $model->obtenerProximos(20);
+        echo json_encode(['ok' => true, 'eventos' => $proximos]);
+    }
     exit();
 }
 

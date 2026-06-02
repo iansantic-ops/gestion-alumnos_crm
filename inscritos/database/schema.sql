@@ -70,9 +70,12 @@ CREATE TABLE IF NOT EXISTS aspirantes (
     telefono           VARCHAR(20),
     id_carrera         INT,
     etapa              ENUM('Contacto','Interesado','Inscrito','No Interesado') DEFAULT 'Contacto',
+    origen             ENUM('Web','Redes sociales','Feria','Referido','Llamada','Otro') DEFAULT 'Otro',
     id_beca            INT DEFAULT NULL,
     descuento_aplicado DECIMAL(5,2) DEFAULT 0.00,
     notas              TEXT,
+    carreras_interes   TEXT DEFAULT NULL,
+    eliminado_en       DATETIME DEFAULT NULL,
     creado_en          DATETIME DEFAULT CURRENT_TIMESTAMP,
     actualizado_en     DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uq_email (email),
@@ -130,3 +133,31 @@ INSERT IGNORE INTO agenda (id_aspirante, tipo, titulo, fecha_hora) VALUES
 --     MODIFY COLUMN etapa
 --     ENUM('Contacto','Interesado','Inscrito','No Interesado')
 --     DEFAULT 'Contacto';
+
+-- ===========================================================
+-- Migración v5: origen, eliminado_en
+-- Para instalaciones NUEVAS: ya incluido arriba (buscar ALTER).
+-- Para actualizar base existente (v4 → v5), ejecutar:
+-- ===========================================================
+-- ALTER TABLE aspirantes
+--     ADD COLUMN origen       ENUM('Web','Redes sociales','Feria','Referido','Llamada','Otro') DEFAULT 'Otro' AFTER etapa,
+--     ADD COLUMN eliminado_en DATETIME DEFAULT NULL;
+-- CREATE INDEX idx_asp_eliminado ON aspirantes (eliminado_en);
+
+-- -----------------------------------------------------------
+-- Tabla: configuracion (v8 — configuración global del sistema)
+-- Almacena pares clave-valor compartidos por todos los admins.
+-- Ejemplo: mensajes_whatsapp, etc.
+-- -----------------------------------------------------------
+CREATE TABLE IF NOT EXISTS configuracion (
+    clave      VARCHAR(100) NOT NULL PRIMARY KEY,
+    valor      TEXT         NOT NULL,
+    actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Valores por defecto de mensajes WhatsApp
+INSERT IGNORE INTO configuracion (clave, valor) VALUES
+('wa_msg_contacto',      'Hola {nombre}, te contactamos desde la universidad 👋 Nos gustaría darte información sobre nuestras carreras. ¿Tienes un momento?'),
+('wa_msg_interesado',    'Hola {nombre}! Vimos que estás interesado en nuestra oferta educativa 🎓 Con gusto te orientamos en el proceso de admisión. ¿Cuándo podemos hablar?'),
+('wa_msg_inscrito',      '¡Hola {nombre}! Felicitaciones por tu inscripción 🎉 Aquí tienes los próximos pasos para iniciar tu proceso de bienvenida.'),
+('wa_msg_no_interesado', 'Hola {nombre}, entendemos tu decisión. Si en el futuro reconsideras o necesitas información, estamos aquí. ¡Mucho éxito! 🙌');

@@ -18,7 +18,7 @@ try {
 
     // Por etapa
     $stmtEtapa = $pdo->query(
-        "SELECT etapa, COUNT(*) as total FROM aspirantes GROUP BY etapa ORDER BY etapa"
+        "SELECT etapa, COUNT(*) as total FROM aspirantes WHERE eliminado_en IS NULL GROUP BY etapa ORDER BY etapa"
     );
     $porEtapa = $stmtEtapa->fetchAll(PDO::FETCH_ASSOC);
 
@@ -46,7 +46,7 @@ try {
 
     // Total con beca
     $totalConBeca = (int)$pdo->query(
-        "SELECT COUNT(*) FROM aspirantes WHERE id_beca IS NOT NULL"
+        "SELECT COUNT(*) FROM aspirantes WHERE id_beca IS NOT NULL AND eliminado_en IS NULL AND eliminado_en IS NULL"
     )->fetchColumn();
 
     // Registros recientes (últimos 10)
@@ -58,6 +58,25 @@ try {
          LIMIT 10"
     );
     $recientes = $stmtRec->fetchAll(PDO::FETCH_ASSOC);
+
+    // Aspirantes por canal de captación
+    $stmtOrigen = $pdo->query(
+        'SELECT origen, COUNT(*) AS total
+         FROM aspirantes WHERE eliminado_en IS NULL
+         GROUP BY origen ORDER BY total DESC'
+    );
+    $porOrigen = $stmtOrigen->fetchAll(PDO::FETCH_ASSOC);
+
+    // Nuevos aspirantes por día (últimos 30 días) para gráfica de línea
+    $stmtDiario = $pdo->query(
+        "SELECT DATE(creado_en) AS dia, COUNT(*) AS nuevos
+          FROM aspirantes
+          WHERE eliminado_en IS NULL AND creado_en >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+          GROUP BY DATE(creado_en) ORDER BY dia ASC"
+    );
+    $actividadDiaria = array_map(function($r) {
+        return ['dia' => date('d/m', strtotime($r['dia'])), 'nuevos' => (int)$r['nuevos']];
+    }, $stmtDiario->fetchAll(PDO::FETCH_ASSOC));
 
     // Actividad historial (últimos 30 días)
     $stmtHist = $pdo->query(

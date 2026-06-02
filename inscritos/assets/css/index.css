@@ -122,3 +122,13 @@ body::after  { width: 400px; height: 400px; bottom: -100px; right: -100px; }
 .btn-login:active { transform: translateY(0); }
 
 .login-footer { text-align: center; margin-top: 22px; font-size: 12px; color: #aaa; }
+
+@media (max-width: 480px) {
+    .login-wrapper {
+        width: 95vw;
+        padding: 36px 24px 30px;
+        border-radius: 16px;
+    }
+    .login-logo h1 { font-size: 19px; }
+    .login-logo .icon { width: 60px; height: 60px; font-size: 28px; }
+}
