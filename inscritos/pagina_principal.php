@@ -951,14 +951,15 @@ function colorEtapa(string $etapa): string {
             </div>
             <!-- Barra de selección masiva -->
             <div class="bulk-bar" id="bulk-bar">
-                <span id="bulk-count">0 seleccionados</span>
-                <button class="bulk-btn" style="background:#28a745" onclick="bulkAccion('cambiar_etapa')">🔄 Cambiar etapa</button>
-                <button class="bulk-btn" style="background:#0077cc" onclick="bulkAccion('agregar_nota')">📝 Agregar nota</button>
-                <button class="bulk-btn" style="background:#7c3aed" onclick="bulkAccion('carrera_interes')">🎓 Carrera de interés</button>
-                <button class="bulk-btn" style="background:#e07b00" onclick="exportarSeleccion()">📥 Exportar selección</button>
-                <button class="bulk-btn" style="background:#e24b4a" onclick="bulkAccion('eliminar')">🗑️ Eliminar</button>
-                <button class="bulk-btn" style="background:rgba(255,255,255,.2)" onclick="limpiarSeleccion()">✕</button>
-            </div>
+    <span id="bulk-count">0 seleccionados</span>
+    <button class="bulk-btn" style="background:#28a745" onclick="bulkAccion('cambiar_etapa')">🔄 Cambiar etapa</button>
+    <button class="bulk-btn" style="background:#0077cc" onclick="bulkAccion('agregar_nota')">📝 Agregar nota</button>
+    <button class="bulk-btn" style="background:#7c3aed" onclick="bulkAccion('carrera_interes')">🎓 Carrera de interés</button>
+    <button class="bulk-btn" style="background:#1ebe57" onclick="abrirEnvioMasivoWA()">💬 Enviar WhatsApp masivo</button>
+    <button class="bulk-btn" style="background:#e07b00" onclick="exportarSeleccion()">📥 Exportar selección</button>
+    <button class="bulk-btn" style="background:#e24b4a" onclick="bulkAccion('eliminar')">🗑️ Eliminar</button>
+    <button class="bulk-btn" style="background:rgba(255,255,255,.2)" onclick="limpiarSeleccion()">✕</button>
+</div>
             <!-- Paginación dinámica generada por JS -->
             <div id="asp-paginacion" style="display:none;align-items:center;justify-content:space-between;padding:14px 20px;border-top:1px solid var(--border);background:var(--gray-bg);">
                 <span id="asp-paginacion-info" style="font-size:13px;color:var(--text-light);"></span>
@@ -3041,7 +3042,69 @@ document.addEventListener('keydown', e => {
     if (e.key === 'n' && !e.ctrlKey && sec === 'sec-aspirantes') { abrirModalAspirante(); return; }
     if (e.key === 'd' && !e.ctrlKey && sec === 'sec-aspirantes') { toggleDark(); return; }
 });
+// ============================================================
+// Envío masivo de WhatsApp con mensaje promocional
+// ============================================================
+let _waMasivoDatos = [];
 
+async function abrirEnvioMasivoWA() {
+    const ids = getSeleccionados();
+    if (!ids.length) { toast('Selecciona al menos un aspirante', 'error'); return; }
+
+    document.getElementById('wa-masivo-texto').value = '';
+    document.getElementById('wa-masivo-alert').style.display = 'none';
+
+    // Tomar nombre y teléfono directamente de las filas seleccionadas (ya están en el DOM)
+    _waMasivoDatos = [];
+    document.querySelectorAll('.chk-row:checked').forEach(chk => {
+        const tr = chk.closest('tr');
+        const nombre = tr.querySelector('td:nth-child(2) div')?.textContent?.trim() || 'Aspirante';
+        const telTexto = tr.querySelector('td:nth-child(3)')?.textContent?.trim() || '';
+        const tel = _limpiarTel(telTexto);
+        _waMasivoDatos.push({ id: chk.value, nombre, tel });
+    });
+
+    const conTel = _waMasivoDatos.filter(a => a.tel).length;
+    const sinTel = _waMasivoDatos.length - conTel;
+
+    document.getElementById('wa-masivo-lista').innerHTML =
+        `<strong>${_waMasivoDatos.length} seleccionados</strong> · ✅ ${conTel} con teléfono · ` +
+        (sinTel > 0 ? `<span style="color:#c0392b">⚠️ ${sinTel} sin teléfono (se omitirán)</span>` : '✅ todos tienen teléfono') +
+        `<ul style="margin:8px 0 0 16px;">` +
+        _waMasivoDatos.map(a => `<li>${a.nombre}${a.tel ? '' : ' — sin teléfono'}</li>`).join('') +
+        `</ul>`;
+
+    abrirModal('modal-wa-masivo');
+}
+
+function ejecutarEnvioMasivoWA() {
+    const texto = document.getElementById('wa-masivo-texto').value.trim();
+    const alertEl = document.getElementById('wa-masivo-alert');
+    if (!texto) {
+        alertEl.style.display = 'block';
+        alertEl.style.background = '#fff0f0';
+        alertEl.style.color = '#c0392b';
+        alertEl.textContent = '⚠️ Escribe un mensaje antes de enviar.';
+        return;
+    }
+    const destinatarios = _waMasivoDatos.filter(a => a.tel);
+    if (!destinatarios.length) {
+        alertEl.style.display = 'block';
+        alertEl.style.background = '#fff0f0';
+        alertEl.style.color = '#c0392b';
+        alertEl.textContent = '⚠️ Ninguno de los seleccionados tiene teléfono registrado.';
+        return;
+    }
+
+    const lista = document.getElementById('wa-masivo-lista');
+    lista.innerHTML = '<strong>Haz clic en cada enlace para enviar:</strong><ul style="margin:8px 0 0 16px;">' +
+        destinatarios.map(a => {
+            const msg = encodeURIComponent(texto.replace(/\{nombre\}/g, a.nombre));
+            return `<li><a href="https://wa.me/${a.tel}?text=${msg}" target="_blank" onclick="logContacto(${a.id},'llamada')" style="color:#1ebe57;font-weight:700;">💬 ${a.nombre}</a></li>`;
+        }).join('') + '</ul>';
+
+    toast(`💬 Lista lista — haz clic en cada nombre para abrir su chat`);
+}
 </script>
 
 <!-- ═══ BÚSQUEDA GLOBAL ════════════════════════════════════════ -->
@@ -3096,7 +3159,25 @@ document.addEventListener('keydown', e => {
         </div>
     </div>
 </div>
-
+<!-- ═══ MODAL: Envío masivo de WhatsApp ════════════════════════ -->
+<div class="modal-overlay" id="modal-wa-masivo">
+    <div class="modal" style="width:480px;max-height:85vh;overflow-y:auto;">
+        <h3>💬 Enviar mensaje de WhatsApp masivo</h3>
+        <p style="font-size:13px;color:var(--text-light);margin-bottom:10px;">
+            Se abrirá una pestaña de WhatsApp por cada aspirante seleccionado con teléfono registrado. Usa <code>{nombre}</code> para personalizar el saludo.
+        </p>
+        <div class="form-group">
+            <label>Mensaje promocional</label>
+            <textarea id="wa-masivo-texto" rows="5" placeholder="Hola {nombre}, te escribimos de la universidad para contarte sobre..."></textarea>
+        </div>
+        <div id="wa-masivo-lista" style="font-size:12px;color:var(--text-light);margin-bottom:10px;max-height:140px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:8px 12px;"></div>
+        <div id="wa-masivo-alert" style="display:none;padding:10px 14px;border-radius:8px;font-size:13px;font-weight:700;margin-bottom:10px;"></div>
+        <div style="display:flex;gap:10px;margin-top:6px;">
+            <button class="btn-sm btn-primary" style="flex:1;padding:11px;background:#1ebe57;border-color:#1ebe57;" id="wa-masivo-btn" onclick="ejecutarEnvioMasivoWA()">💬 Enviar a todos</button>
+            <button class="btn-sm" style="flex:1;padding:11px;background:var(--gray-bg);" onclick="cerrarModal('modal-wa-masivo')">Cancelar</button>
+        </div>
+    </div>
+</div>
 <!-- ═══ MODAL: Agendar seguimiento rápido ═══════════════════════ -->
 <div class="modal-overlay" id="modal-agendar-rapido">
     <div class="modal" style="width:440px">
